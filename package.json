@@ -27,18 +27,20 @@
 	"files": [
 		"dist"
 	],
-	"n8n": {
-		"n8nNodesApiVersion": 1,
-		"strict": true,
-		"credentials": [
-			"dist/credentials/GithubIssuesApi.credentials.js",
-			"dist/credentials/GithubIssuesOAuth2Api.credentials.js"
-		],
-		"nodes": [
-			"dist/nodes/GithubIssues/GithubIssues.node.js",
-			"dist/nodes/Example/Example.node.js"
-		]
-	},
+		"n8n": {
+			"n8nNodesApiVersion": 1,
+			"strict": true,
+			"credentials": [
+				"dist/credentials/Pop3ServerApi.credentials.js",
+				"dist/credentials/GithubIssuesApi.credentials.js",
+				"dist/credentials/GithubIssuesOAuth2Api.credentials.js"
+			],
+			"nodes": [
+				"dist/nodes/Pop3Trigger/Pop3Trigger.node.js",
+				"dist/nodes/GithubIssues/GithubIssues.node.js",
+				"dist/nodes/Example/Example.node.js"
+			]
+		},
 	"devDependencies": {
 		"@n8n/node-cli": "*",
 		"eslint": "9.32.0",
