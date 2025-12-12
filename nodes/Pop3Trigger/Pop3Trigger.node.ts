@@ -1,5 +1,6 @@
 import net from 'node:net';
 import tls from 'node:tls';
+import { simpleParser } from 'mailparser';
 
 import type {
 	ITriggerFunctions,
@@ -378,6 +379,12 @@ export class Pop3Trigger implements INodeType {
 
 				for (const ref of newRefs) {
 					const rawMessage = await client.retrieve(ref.index);
+					const parsed = await simpleParser(rawMessage);
+
+					const headers: { [key: string]: any } = {};
+					for (const [key, value] of parsed.headers) {
+						headers[key] = value;
+					}
 
 					knownUids.add(ref.uid);
 
@@ -387,6 +394,12 @@ export class Pop3Trigger implements INodeType {
 							index: ref.index,
 							raw: rawMessage,
 							retrievedAt: now,
+							headers,
+							body: {
+								text: parsed.text?.replace('\\n', '\n') as string,
+								html: parsed.html as string,
+							},
+							attachment: parsed.attachments,
 						},
 					});
 					if (deleteAfterDownload) {
