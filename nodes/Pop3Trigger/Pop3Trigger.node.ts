@@ -7,6 +7,9 @@ import type {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
+	ICredentialTestFunctions,
+	ICredentialsDecrypted,
+	INodeCredentialTestResult,
 } from 'n8n-workflow';
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
@@ -30,7 +33,7 @@ class Pop3Client {
 
 	private socket: net.Socket | tls.TLSSocket | null = null;
 
-	constructor(private readonly options: Pop3ClientOptions) {}
+	constructor(private readonly options: Pop3ClientOptions) { }
 
 	private buildSocket() {
 		const { host, port, secure, allowUnauthorized, timeout } = this.options;
@@ -223,11 +226,11 @@ export class Pop3Trigger implements INodeType {
 			{
 				name: 'pop3ServerApi',
 				required: true,
+				testedBy: 'pop3ConnectionTest',
 			},
 		],
 		inputs: [],
 		outputs: [NodeConnectionTypes.Main],
-		polling: true,
 		properties: [
 			{
 				displayName: 'Emit Existing Messages',
@@ -277,17 +280,55 @@ export class Pop3Trigger implements INodeType {
 		],
 	};
 
+	methods = {
+		credentialTest: {
+			async pop3ConnectionTest(
+				this: ICredentialTestFunctions,
+				credential: ICredentialsDecrypted,
+			): Promise<INodeCredentialTestResult> {
+				const credentials = credential.data as {
+					host: string;
+					port: number;
+					secure: boolean;
+					allowUnauthorized: boolean;
+					username: string;
+					password: string;
+				};
+
+				const client = new Pop3Client({
+					host: credentials.host,
+					port: credentials.port,
+					secure: credentials.secure,
+					allowUnauthorized: credentials.allowUnauthorized,
+					username: credentials.username,
+					password: credentials.password,
+					timeout: 10000,
+				});
+
+				try {
+					await client.connect();
+					await client.login();
+					await client.quit();
+					return {
+						status: 'OK',
+						message: 'Connection successful',
+					};
+				} catch (error) {
+					return {
+						status: 'Error',
+						message: (error as Error).message,
+					};
+				}
+			},
+		},
+	};
+
 	async trigger(this: ITriggerFunctions): Promise<ITriggerResponse> {
 		const emitOnStart = this.getNodeParameter('emitOnStart', 0) as boolean;
 		const deleteAfterDownload = this.getNodeParameter('deleteAfterDownload', 0) as boolean;
 		const limit = this.getNodeParameter('limit', 0) as number;
 		const pollingIntervalSeconds = this.getNodeParameter('pollingInterval', 0) as number;
 		const timeoutSeconds = this.getNodeParameter('timeout', 0) as number;
-
-		
-		var resultBranches: INodeExecutionData[][] = [];
-		var resultItems: INodeExecutionData[] = [];
-		resultBranches.push(resultItems);
 
 		const credentials = (await this.getCredentials('pop3ServerApi')) as {
 			host: string;
@@ -301,6 +342,8 @@ export class Pop3Trigger implements INodeType {
 		const staticData = this.getWorkflowStaticData('node');
 		const knownUids = new Set<string>((staticData.knownUids as string[]) || []);
 		const hasInitialized = Boolean(staticData.initialized);
+
+		const returnedPromise = this.helpers.createDeferredPromise();
 
 		const pollMailbox = async () => {
 			const client = new Pop3Client({
@@ -344,31 +387,31 @@ export class Pop3Trigger implements INodeType {
 							index: ref.index,
 							raw: rawMessage,
 							retrievedAt: now,
-						}
+						},
 					});
 					if (deleteAfterDownload) {
 						await client.delete(ref.index);
 					}
 				}
 			} catch (error) {
+				const errorObj = new NodeOperationError(this.getNode(), error as Error);
 				this.logger.error('pop3 Read node encountered an error fetching new emails', {
-					error,
+					error: errorObj,
 				});
-				//this.emitError(error as Error);
-				//return [items]
-				throw new NodeOperationError(this.getNode(), error as Error);
+
+				// Wait with resolving till the returnedPromise got resolved, else n8n will be unhappy
+				// if it receives an error before the workflow got activated
+				await returnedPromise.promise.then(() => {
+					this.emitError(errorObj);
+				});
 			} finally {
 				staticData.knownUids = Array.from(knownUids);
 				await client.quit();
 			}
-			return [items];
-			/*
+
 			if (items.length) {
-				//this.emit([this.helpers.returnJsonArray(resultItems)]);
-				//this.emit([items]);
-				return [items];
+				this.emit([items]);
 			}
-				*/
 		};
 
 		let active = false;
@@ -384,13 +427,35 @@ export class Pop3Trigger implements INodeType {
 			}
 		};
 
-		await executePoll();
+		// Validate credentials first (blocking)
+		try {
+			const checkClient = new Pop3Client({
+				host: credentials.host,
+				port: credentials.port,
+				secure: credentials.secure,
+				allowUnauthorized: credentials.allowUnauthorized,
+				username: credentials.username,
+				password: credentials.password,
+				timeout: timeoutSeconds * 1000,
+			});
+			await checkClient.connect();
+			await checkClient.login();
+			await checkClient.quit();
+		} catch (error) {
+			throw new NodeOperationError(this.getNode(), error as Error);
+		}
+
+		// Start initial poll asynchronously - DO NOT await here to avoid blocking trigger return
+		// which causes the "Overwrite emit" error if it emits synchronously or takes too long.
+		// However, we want it to run.
+		void executePoll();
 
 		const interval = setInterval(() => {
-			executePoll().catch((error) => {
-				this.logger?.error('POP3 polling failed', { error });
-			});
+			void executePoll();
 		}, pollingIntervalSeconds * 1000);
+
+		// Resolve returned-promise so that waiting errors can be emitted
+		returnedPromise.resolve();
 
 		return {
 			closeFunction: async () => {
