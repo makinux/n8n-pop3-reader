@@ -1,0 +1,20 @@
+{
+	"node": "n8n-pop3-reader",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"icon": "file:pop3-reader.svg",
+	"displayName": "POP3 Trigger",
+	"categories": ["Communication", "Email"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://github.com/makinux/n8n-pop3-reader#pop3-server-api"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/makinux/n8n-pop3-reader#readme"
+			}
+		]
+	}
+}

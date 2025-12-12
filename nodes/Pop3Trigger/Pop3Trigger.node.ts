@@ -284,6 +284,11 @@ export class Pop3Trigger implements INodeType {
 		const pollingIntervalSeconds = this.getNodeParameter('pollingInterval', 0) as number;
 		const timeoutSeconds = this.getNodeParameter('timeout', 0) as number;
 
+		
+		var resultBranches: INodeExecutionData[][] = [];
+		var resultItems: INodeExecutionData[] = [];
+		resultBranches.push(resultItems);
+
 		const credentials = (await this.getCredentials('pop3ServerApi')) as {
 			host: string;
 			port: number;
@@ -339,23 +344,31 @@ export class Pop3Trigger implements INodeType {
 							index: ref.index,
 							raw: rawMessage,
 							retrievedAt: now,
-						},
+						}
 					});
-
 					if (deleteAfterDownload) {
 						await client.delete(ref.index);
 					}
 				}
 			} catch (error) {
+				this.logger.error('pop3 Read node encountered an error fetching new emails', {
+					error,
+				});
+				//this.emitError(error as Error);
+				//return [items]
 				throw new NodeOperationError(this.getNode(), error as Error);
 			} finally {
 				staticData.knownUids = Array.from(knownUids);
 				await client.quit();
 			}
-
+			return [items];
+			/*
 			if (items.length) {
-				this.emit([items]);
+				//this.emit([this.helpers.returnJsonArray(resultItems)]);
+				//this.emit([items]);
+				return [items];
 			}
+				*/
 		};
 
 		let active = false;
